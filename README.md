@@ -125,21 +125,22 @@ graph TD
     C --> F[Streamlit Dashboard]
     F -->|Clasificación| G[MITRE ATT&CK Logic]
     F -->|Geolocalización| H[IP-API]
+```
     
-🛠️ Instalación y Uso
-Prerrequisitos
+🛠️ Prerrequisitos
+
 Docker & Docker Compose (Recomendado)
 
 O Python 3.9+ si se corre localmente.
 
+### 🚀 Cómo ejecutar
+
 Paso 1: Clonar el repositorio
-Bash
-git clone [https://github.com/tu_usuario/ShadowShell.git](https://github.com/tu_usuario/ShadowShell.git)
+git clone [https://github.com/punga1078/ShadowShell](https://github.com/punga1078/ShadowShell)
 cd ShadowShell
+
 Paso 2: Configurar Variables de Entorno
 Crea un archivo .env en la raíz del proyecto y agrega tus claves:
-
-Fragmento de código
 TELEGRAM_TOKEN=tu_token_de_telegram
 TELEGRAM_CHAT_ID=tu_chat_id
 VT_API_KEY=tu_api_key_de_virustotal
