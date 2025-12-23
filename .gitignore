@@ -1,0 +1,17 @@
+# Archivos de entorno y secretos (¡MUY IMPORTANTE!)
+.env
+
+# Archivos de Python
+__pycache__/
+*.pyc
+
+# Base de datos y Logs (No subir datos reales)
+DATA/
+logs/
+
+# Llaves SSH generadas localmente
+keys/
+
+# Archivos de sistema
+.DS_Store
+Thumbs.db
