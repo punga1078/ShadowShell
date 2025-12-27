@@ -111,7 +111,7 @@ def map_mitre_tactic(command):
         return "Uncategorized"
 
 # --- NUEVO: FUNCIÓN DE GEOLOCALIZACIÓN ---
-@st.cache_data
+@st.cache_data(show_spinner=False)
 def get_geolocation(ip_list):
     """Convierte lista de IPs en DataFrame con Lat/Lon + ISP simulado para pruebas"""
     locations = []
@@ -182,9 +182,12 @@ def get_geolocation(ip_list):
                     'isp': response['isp'],
                     'org': response.get('org', 'Unknown')
                 })
-        except:
+                time.sleep(1.5)
+        except Exception as e:
+            print(f"Error geolocalizando {ip}: {e}")
             pass 
-            
+            if not locations:
+                return pd.DataFrame(columns=['lat', 'lon', 'city', 'country', 'isp', 'org'])
     return pd.DataFrame(locations)
 
 # Cargar datos
