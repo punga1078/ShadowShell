@@ -4,9 +4,61 @@ import sqlite3
 import plotly.express as px
 import requests
 import os
+import time
 import json
 from streamlit_autorefresh import st_autorefresh
 import random
+
+# ==========================================
+# 🔐 SISTEMA DE LOGIN (Pegar esto al inicio)
+# ==========================================
+def check_password():
+    """Retorna True si el usuario ingresó la contraseña correcta."""
+    
+    # 1. Definir la contraseña (la toma del .env o usa una por defecto)
+    CORRECT_PASSWORD = os.getenv("DASHBOARD_PASSWORD") 
+
+    if not CORRECT_PASSWORD:
+        st.error("⚠️ ERROR DE SEGURIDAD: No se ha configurado la contraseña en el archivo .env")
+        st.stop()
+
+    # 2. Verificar si ya está logueado en la sesión
+    if "password_correct" not in st.session_state:
+        st.session_state.password_correct = False
+
+    # 3. Función para validar el input
+    def password_entered():
+        if st.session_state["password_input"] == CORRECT_PASSWORD:
+            st.session_state.password_correct = True
+            del st.session_state["password_input"]  # Borrar contraseña de memoria
+        else:
+            st.session_state.password_correct = False
+
+    # 4. Mostrar pantalla de Login si no está logueado
+    if not st.session_state.password_correct:
+        st.set_page_config(page_title="ShadowShell Login", page_icon="🔐")
+        st.markdown(
+            """
+            <style>
+            .stApp {align-items: center; justify-content: center;}
+            </style>
+            """,
+            unsafe_allow_html=True
+        )
+        st.title("🛡️ ShadowShell Access")
+        st.text_input(
+            "Ingrese la clave de acceso:", 
+            type="password", 
+            on_change=password_entered, 
+            key="password_input"
+        )
+        st.warning("⚠️ Acceso restringido únicamente a personal autorizado.")
+        
+        # ⛔ AQUÍ SE DETIENE TODO SI NO HAY LOGIN ⛔
+        st.stop()  
+
+# Ejecutar el check antes de cualquier otra cosa
+check_password()
 
 # Configuración de la página
 st.set_page_config(
