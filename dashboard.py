@@ -119,86 +119,71 @@ def map_mitre_tactic(command):
         return "Uncategorized"
 
 # --- NUEVO: FUNCIÓN DE GEOLOCALIZACIÓN ---
+# 1. Función PEQUEÑA que se encarga de UNA sola IP (Esta es la que tiene memoria)
 @st.cache_data(show_spinner=False)
+def get_single_ip_data(ip):
+    """Consulta la API para una sola IP y guarda el resultado en memoria"""
+    
+    # Simulación para IPs privadas (igual que antes)
+    if ip == "localhost" or ip.startswith("127.") or ip.startswith("192.168.") or ip.startswith("10."):
+        fake_locations = [
+            {'lat': 55.7558, 'lon': 37.6173, 'city': 'Moscow', 'country': 'Russia'},
+            {'lat': 39.9042, 'lon': 116.4074, 'city': 'Beijing', 'country': 'China'},
+            {'lat': -23.5505, 'lon': -46.6333, 'city': 'Sao Paulo', 'country': 'Brazil'}
+        ]
+        random.seed(ip)
+        fake = random.choice(fake_locations)
+        return {
+            'ip': ip, 'lat': fake['lat'], 'lon': fake['lon'], 
+            'city': f"{fake['city']} (Simulado)", 'country': fake['country'], 
+            'isp': 'Private', 'org': 'Private'
+        }
+
+    # Consulta REAL a la API
+    try:
+        # Pausa pequeña para respetar límites (solo se ejecuta si la IP es nueva)
+        time.sleep(1.1) 
+        response = requests.get(f"http://ip-api.com/json/{ip}", timeout=5).json()
+        
+        if response['status'] == 'success':
+            return {
+                'ip': ip,
+                'lat': response['lat'],
+                'lon': response['lon'],
+                'city': response['city'],
+                'country': response['country'],
+                'isp': response['isp'],
+                'org': response.get('org', 'Unknown')
+            }
+        else:
+            return None # Falló la API para esta IP específica
+    except:
+        return None # Error de conexión
+
+# 2. Función PRINCIPAL (Ya no lleva caché aquí, porque la tiene la función de arriba)
 def get_geolocation(ip_list):
-    """Convierte lista de IPs en DataFrame con Lat/Lon + ISP simulado para pruebas"""
     locations = []
     
-    # Lista de ubicaciones falsas AHORA CON ISP Y ORG
-    fake_locations = [
-        {
-            'lat': 55.7558, 'lon': 37.6173, 'city': 'Moscow', 'country': 'Russia', 
-            'isp': 'Rostelecom', 'org': 'Government of Russia'
-        },
-        {
-            'lat': 39.9042, 'lon': 116.4074, 'city': 'Beijing', 'country': 'China', 
-            'isp': 'China Unicom', 'org': 'Beijing Infrastructure'
-        },
-        {
-            'lat': 39.0392, 'lon': 125.7625, 'city': 'Pyongyang', 'country': 'North Korea', 
-            'isp': 'Star Joint Venture', 'org': 'Kwangmyong Intranet'
-        },
-        {
-            'lat': -23.5505, 'lon': -46.6333, 'city': 'Sao Paulo', 'country': 'Brazil', 
-            'isp': 'Vivo', 'org': 'Telefonica Brasil'
-        },
-        {
-            'lat': 38.9072, 'lon': -77.0369, 'city': 'Washington D.C.', 'country': 'USA', 
-            'isp': 'Comcast Cable', 'org': 'US DoD Network'
-        },
-        {
-            'lat': 52.5200, 'lon': 13.4050, 'city': 'Berlin', 'country': 'Germany', 
-            'isp': 'Deutsche Telekom', 'org': 'Berlin Hosting Service'
-        }
-    ]
+    # Barra de progreso visual si hay muchas IPs nuevas
+    if len(ip_list) > 0:
+        progress_text = "Geolocalizando atacantes..."
+        my_bar = st.progress(0, text=progress_text)
 
-    for ip in ip_list:
-        # Detectamos IPs Locales / Docker / Privadas
-        is_private = (
-            ip == "localhost" or 
-            ip.startswith("127.") or 
-            ip.startswith("192.168.") or 
-            ip.startswith("10.") or 
-            (ip.startswith("172.") and 16 <= int(ip.split('.')[1]) <= 31) 
-        )
+    for i, ip in enumerate(ip_list):
+        data = get_single_ip_data(ip) # <--- Aquí ocurre la magia del caché
+        if data:
+            locations.append(data)
+        
+        # Actualizar barra de progreso
+        if len(ip_list) > 0:
+            my_bar.progress((i + 1) / len(ip_list), text=progress_text)
+            
+    if len(ip_list) > 0:
+        my_bar.empty() # Borrar la barra cuando termine
 
-        if is_private:
-            random.seed(ip) 
-            fake = random.choice(fake_locations)
-            
-            locations.append({
-                'ip': ip, 
-                'lat': fake['lat'], 
-                'lon': fake['lon'], 
-                'city': f"{fake['city']} (Simulado)",
-                'country': fake['country'],
-                'isp': fake['isp'],   # <--- Simulamos el ISP
-                'org': fake['org']    # <--- Simulamos la Organización
-            })
-            continue
-            
-        # Si es una IP real, consultamos la API
-        try:
-            response = requests.get(f"http://ip-api.com/json/{ip}", timeout=10).json()
-            if response['status'] == 'success':
-                locations.append({
-                    'ip': ip,
-                    'lat': response['lat'],
-                    'lon': response['lon'],
-                    'city': response['city'],
-                    'country': response['country'],
-                    'isp': response['isp'],
-                    'org': response.get('org', 'Unknown')
-                })
-            else:
-                print(f"⚠️ API falló para {ip}: {response.get('message')}")
-            time.sleep(1.5)
-        except Exception as e:
-            print(f"Error geolocalizando {ip}: {e}")
-            pass 
-            
     if not locations:
         return pd.DataFrame(columns=['lat', 'lon', 'city', 'country', 'isp', 'org'])
+        
     return pd.DataFrame(locations)
 
 # Cargar datos
