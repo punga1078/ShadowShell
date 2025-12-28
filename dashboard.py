@@ -75,7 +75,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-count = st_autorefresh(interval=2000, limit=None, key="fizzbuzzcounter")
+count = st_autorefresh(interval=5000, limit=None, key="fizzbuzzcounter") # Subí a 5s para no saturar
 st.title("🕵️‍♂️ ShadowShell - Monitor de Amenazas en Vivo")
 st.markdown("---")
 
@@ -83,6 +83,7 @@ st.markdown("---")
 def load_data():
     try:
         base_dir = os.path.dirname(os.path.abspath(__file__))
+        # Usamos 'data' en minúscula como corregimos antes
         db_path = os.path.join(base_dir, 'data', 'interacciones.db')
         
         if not os.path.exists(db_path):
@@ -118,7 +119,7 @@ def map_mitre_tactic(command):
     else:
         return "Uncategorized"
 
-# --- NUEVO: FUNCIÓN DE GEOLOCALIZACIÓN ---
+# --- NUEVO: FUNCIÓN DE GEOLOCALIZACIÓN OPTIMIZADA ---
 # 1. Función PEQUEÑA que se encarga de UNA sola IP (Esta es la que tiene memoria)
 @st.cache_data(show_spinner=False)
 def get_single_ip_data(ip):
@@ -192,30 +193,18 @@ df_sessions, df_commands = load_data()
 # --- SISTEMA DE DETECCIÓN DE AMENAZAS (IDS) ---
 st.subheader("🛡️ Monitor de Seguridad")
 
-# 1. Definimos qué buscar
 honeyfiles = ["passwords.txt", "wallet_backup.json", "clientes_2025.csv"]
-dangerous_cmds = ["wget", "curl", "sudo", "rm -rf"] # <--- Agregamos los comandos aquí
-
-# 2. Combinamos todo en una sola lista de "patrones peligrosos"
+dangerous_cmds = ["wget", "curl", "sudo", "rm -rf"] 
 all_patterns = honeyfiles + dangerous_cmds
 
 if not df_commands.empty:
-    # Creamos una expresión regular que busque CUALQUIERA de esas palabras
     search_pattern = '|'.join(all_patterns)
-    
-    # Filtramos: ¿El comando contiene alguna de las palabras prohibidas?
     threats = df_commands[df_commands['command'].str.contains(search_pattern, case=False, na=False)]
     
     if not threats.empty:
-        # Mensaje más dinámico
-        st.error(f"🚨 ALERTA CRÍTICA: ¡{len(threats)} acciones hostiles detectadas (Robo, Malware o Escalada)!")
-        
+        st.error(f"🚨 ALERTA CRÍTICA: ¡{len(threats)} acciones hostiles detectadas!")
         with st.expander("Ver Detalles del Incidente (Forensics)", expanded=True):
-            # Formato condicional para la tabla
-            st.dataframe(
-                threats[['timestamp', 'ip', 'command']], 
-                use_container_width=True
-            )
+            st.dataframe(threats[['timestamp', 'ip', 'command']], use_container_width=True)
     else:
         st.success("✅ Sistema Seguro: Sin actividad crítica reciente.")
 else:
@@ -234,6 +223,32 @@ with col2: st.metric("Atacantes Únicos", df_sessions['ip'].nunique() if not df_
 with col3: st.metric("Comandos Capturados", len(df_commands))
 with col4: st.metric("Usuario + Común", df_sessions['username'].mode()[0] if not df_sessions.empty else "N/A")
 
+# =========================================================
+#  NUEVO: TABLAS SEPARADAS (SOLICITUD 1)
+# =========================================================
+st.markdown("---")
+col_logins, col_cmds = st.columns(2)
+
+with col_logins:
+    st.subheader("🕵️ Últimos Logins")
+    st.caption("Quién logró entrar (User/Pass)")
+    if not df_sessions.empty:
+        st.dataframe(df_sessions[['timestamp', 'ip', 'username', 'password']], hide_index=True, use_container_width=True)
+    else:
+        st.info("Sin registros de sesión.")
+
+with col_cmds:
+    st.subheader("⌨️ Comandos Ejecutados")
+    st.caption("Qué escribieron (Shell + Exec)")
+    if not df_commands.empty:
+        # Mostramos vt_result si existe (para ver los EXEC capturados)
+        cols_cmd = ['timestamp', 'ip', 'command']
+        if 'vt_result' in df_commands.columns:
+            cols_cmd.append('vt_result')
+        st.dataframe(df_commands[cols_cmd], hide_index=True, use_container_width=True)
+    else:
+        st.info("Sin comandos capturados.")
+
 st.markdown("---")
 
 # --- PESTAÑAS PRINCIPALES  ---
@@ -243,10 +258,10 @@ tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "🦠 Malware", 
     "🔐 Credenciales", 
     "📊 Gráficos",
-    "🛡️ MITRE ATT&CK"  # <--- NUEVA
+    "🛡️ MITRE ATT&CK" 
 ])
 
-# PESTAÑA 1: MAPA
+# PESTAÑA 1: MAPA (ACTUALIZADA CON GRÁFICO DE PAÍSES)
 with tab1:
     st.subheader("🌍 Origen de los Ataques")
     if not df_sessions.empty:
@@ -258,7 +273,6 @@ with tab1:
             attack_counts = df_sessions['ip'].value_counts().reset_index()
             attack_counts.columns = ['ip', 'count']
             
-            # Unimos los datos geográficos con el conteo de ataques
             df_map = pd.merge(df_geo, attack_counts, on='ip')
             
             fig_map = px.scatter_geo(
@@ -268,10 +282,9 @@ with tab1:
                 color='count',
                 size='count',
                 hover_name='city',
-                # Agregamos ISP y Org al hover para ver detalles al pasar el mouse
                 hover_data={'ip': True, 'country': True, 'isp': True, 'org': True, 'lat': False, 'lon': False, 'count': True},
                 projection="natural earth",
-                title="Geolocalización de Intrusos en Tiempo Real",
+                title="Geolocalización de Intrusos",
                 color_continuous_scale="Reds"
             )
             fig_map.update_layout(
@@ -280,43 +293,41 @@ with tab1:
             )
             st.plotly_chart(fig_map, use_container_width=True)
 
-            # --- 2. ESTADÍSTICAS DE ISP Y ORGANIZACIÓN (NUEVO) ---
+            # --- 2. ESTADÍSTICAS (ORGANIZACIÓN + PAÍSES) ---
             st.markdown("---")
-            col_isp1, col_isp2 = st.columns(2)
+            col_geo1, col_geo2 = st.columns(2)
 
-            with col_isp1:
+            with col_geo1:
+                st.subheader("🏳️ Top Países (NUEVO)") # <--- SOLICITUD 2
+                if 'country' in df_map.columns:
+                    country_counts = df_map['country'].value_counts()
+                    st.bar_chart(country_counts, color="#ff4b4b", horizontal=True)
+                else:
+                    st.info("Datos de país no disponibles.")
+
+            with col_geo2:
                 st.subheader("🏢 Top Organizaciones")
-                # Verificamos que la columna 'org' exista (por si la API falló)
                 if 'org' in df_map.columns:
-                    org_counts = df_map['org'].value_counts().head(5)
-                    st.bar_chart(org_counts, color="#ff4b4b", horizontal=True)
+                    org_counts = df_map['org'].value_counts().head(10)
+                    st.bar_chart(org_counts, horizontal=True)
                 else:
-                    st.info("Datos de organización no disponibles aún.")
+                    st.info("Datos de organización no disponibles.")
 
-            with col_isp2:
-                st.subheader("📡 Distribución por ISP")
-                if 'isp' in df_map.columns:
-                    isp_counts = df_map['isp'].value_counts().reset_index()
-                    isp_counts.columns = ['ISP', 'Count']
-                    
-                    fig_pie = px.pie(
-                        isp_counts, 
-                        values='Count', 
-                        names='ISP', 
-                        hole=0.4,
-                        color_discrete_sequence=px.colors.sequential.RdBu
-                    )
-                    fig_pie.update_layout(margin=dict(t=0, b=0, l=0, r=0))
-                    st.plotly_chart(fig_pie, use_container_width=True)
-                else:
-                    st.info("Datos de ISP no disponibles aún.")
+            # --- 3. GRÁFICO DE TORTA ISP ---
+            st.markdown("---")
+            st.subheader("📡 Distribución por ISP")
+            if 'isp' in df_map.columns:
+                isp_counts = df_map['isp'].value_counts().reset_index()
+                isp_counts.columns = ['ISP', 'Count']
+                fig_pie = px.pie(isp_counts, values='Count', names='ISP', hole=0.4, color_discrete_sequence=px.colors.sequential.RdBu)
+                st.plotly_chart(fig_pie, use_container_width=True)
 
         else:
             st.warning("No se pudieron geolocalizar las IPs (o no hay conexión a internet).")
     else:
         st.info("Sin datos para mostrar en el mapa.")
 
-# PESTAÑA 2: COMANDOS
+# PESTAÑA 2: COMANDOS DETALLADOS
 with tab2:
     st.subheader("📜 Últimos Comandos Ejecutados")
     if not df_commands.empty:
@@ -331,53 +342,14 @@ with tab2:
 # PESTAÑA 3: MALWARE 
 with tab3:
     st.subheader("🦠 Análisis de Amenazas (VirusTotal)")
-    
     if not df_commands.empty:
-        # Filtramos comandos que sean wget o curl
         malware_cmds = df_commands[df_commands['command'].str.contains("wget|curl", case=False, na=False)].copy()
-        
         if not malware_cmds.empty:
             st.warning(f"⚠️ Se han detectado {len(malware_cmds)} intentos de descarga de payload.")
-            
-            # --- TABLA MEJORADA ---
-            # Seleccionamos columnas, incluyendo la nueva 'vt_result' si existe
             cols_to_show = ['timestamp', 'ip', 'command']
             if 'vt_result' in malware_cmds.columns:
                 cols_to_show.append('vt_result')
-            
-            # Mostramos la tabla principal
-            st.dataframe(
-                malware_cmds[cols_to_show], 
-                use_container_width=True
-            )
-            
-            # --- DETALLE VISUAL ---
-            st.markdown("### 🔍 Detalles del Análisis")
-            for index, row in malware_cmds.iterrows():
-                # Solo mostramos si hay un resultado de VT
-                if 'vt_result' in row and row['vt_result']:
-                    with st.expander(f"Reporte para: {row['command']}"):
-                        st.info(f"📅 Fecha: {row['timestamp']} | 🌍 IP: {row['ip']}")
-                        
-                        # Colorear según el resultado
-                        result_text = row['vt_result']
-                        if "PELIGRO" in result_text or "malicious" in str(result_text).lower():
-                            st.error(result_text)
-                        elif "Limpio" in result_text:
-                            st.success(result_text)
-                        else:
-                            st.write(result_text)
-
-            # Gráfico de Dominios 
-            st.markdown("---")
-            st.subheader("🌐 Dominios más atacados")
-            try:
-                urls = malware_cmds['command'].str.extract(r'https?://([^/:\s]+)')[0].value_counts()
-                if not urls.empty:
-                    st.bar_chart(urls, horizontal=True, color="#ff4b4b") 
-            except Exception as e:
-                st.error(f"Error analizando URLs: {e}")
-            
+            st.dataframe(malware_cmds[cols_to_show], use_container_width=True)
         else:
             st.success("✅ Limpio: No se han detectado intentos de descarga de malware todavía.")
     else:
@@ -393,7 +365,6 @@ with tab4:
         with col_b:
             st.write("Top 5 Contraseñas")
             top_pass = df_sessions['password'].value_counts().head(5)
-            
             st.bar_chart(top_pass, horizontal=True)
     else:
         st.info("Nadie ha intentado loguearse aún.")
@@ -411,74 +382,27 @@ with tab5:
 # PESTAÑA 6: MITRE ATT&CK
 with tab6:
     st.subheader("🕵️ Análisis Táctico (MITRE Framework)")
-    st.markdown("Clasificación automática de las intenciones del atacante basada en sus comandos.")
-    
     if not df_commands.empty:
-        # Creamos una copia para no afectar los otros gráficos
         df_mitre = df_commands.copy()
-        
-        # Aplicamos la función a cada comando
         df_mitre['mitre_tactic'] = df_mitre['command'].apply(map_mitre_tactic)
-        
-        # Contamos las tácticas
         mitre_counts = df_mitre['mitre_tactic'].value_counts()
         
-        # --- DISEÑO VISUAL ---
         col_m1, col_m2 = st.columns([2, 1])
-        
         with col_m1:
-            st.markdown("#### 🔥 Tácticas más utilizadas")
-            # Gráfico de barras horizontal
             st.bar_chart(mitre_counts, color="#ff4b4b", horizontal=True)
-            
         with col_m2:
-            st.markdown("#### 🧠 Resumen de Inteligencia")
-            # Métricas clave
             if not mitre_counts.empty:
-                top_tactic = mitre_counts.idxmax()
-                top_count = mitre_counts.max()
-                st.metric(label="Táctica Principal", value=top_tactic)
-                st.metric(label="Eventos Detectados", value=top_count)
-            else:
-                st.write("Sin datos suficientes.")
-
-        st.divider()
-        
-        # --- TABLA DETALLADA CON FILTRO ---
-        st.markdown("### 🔬 Desglose Forense")
-        
-        # Filtro interactivo
-        opciones = ["Todos"] + list(mitre_counts.index.unique())
-        tactic_filter = st.selectbox("Filtrar por Táctica Específica:", opciones)
-        
-        if tactic_filter != "Todos":
-            df_show = df_mitre[df_mitre['mitre_tactic'] == tactic_filter]
-        else:
-            df_show = df_mitre
-            
-        # Mostramos la tabla limpia
-        st.dataframe(
-            df_show[['timestamp', 'ip', 'command', 'mitre_tactic']], 
-            use_container_width=True,
-            hide_index=True
-        )
-        
+                st.metric(label="Táctica Principal", value=mitre_counts.idxmax())
+                st.metric(label="Eventos", value=mitre_counts.max())
     else:
-        st.info("Esperando datos de comandos para generar la matriz de ataque...")
+        st.info("Esperando datos de comandos...")
 
-# Función para convertir DF a CSV
+# Exportar Datos
 @st.cache_data
 def convert_df(df):
     return df.to_csv(index=False).encode('utf-8')
 
-st.sidebar.title("🗂️ Exportar Datos")
-st.sidebar.markdown("Descarga los logs para tu informe forense.")
-
+st.sidebar.title("🗂️ Exportar")
 if not df_commands.empty:
     csv = convert_df(df_commands)
-    st.sidebar.download_button(
-        label="📥 Descargar Logs de Comandos (CSV)",
-        data=csv,
-        file_name='shadowshell_logs.csv',
-        mime='text/csv',
-    )
+    st.sidebar.download_button(label="📥 Logs Comandos (CSV)", data=csv, file_name='shadowshell_logs.csv', mime='text/csv')

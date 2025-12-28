@@ -65,6 +65,26 @@ class SSHServer(paramiko.ServerInterface):
     def check_channel_shell_request(self, channel):
         self.event.set()
         return True
+
+    # --- NUEVO: Captura de comandos EXEC (Bots que no abren shell) ---
+    def check_channel_exec_request(self, channel, command):
+        """Captura comandos one-shot ej: ssh user@ip 'uname -a'"""
+        try:
+            command_str = command.decode("utf-8")
+            print(f"⚡ [EXEC] Comando capturado de {self.client_ip}: {command_str}")
+            
+            # Notificamos
+            Notifier.send_alert(f"⚡ *Comando EXEC Detectado*\nIP: `{self.client_ip}`\nCmd: `{command_str}`")
+
+            # Guardamos en la base de datos
+            # Usamos el campo 'vt_result' para etiquetarlo como tráfico de Bot
+            db_logger.log_command(self.client_ip, command_str, vt_result="EXEC (Bot)")
+            
+            return True # Retornamos True para simular éxito
+        except Exception as e:
+            print(f"⚠️ Error procesando EXEC: {e}")
+            return False
+    # ---------------------------------------------------------------
     
 def handle_connection(client_socket, addr):
     transport = paramiko.Transport(client_socket)
@@ -79,7 +99,7 @@ def handle_connection(client_socket, addr):
     
     chan = transport.accept(20)
     if chan is None:
-        print("❌ Nadie se autenticó.")
+        print("❌ Nadie se autenticó o fue una conexión EXEC.")
         return
     
     print(f"✅ ¡INTRUSO DENTRO! {addr}")
