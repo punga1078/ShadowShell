@@ -179,7 +179,7 @@ def get_geolocation(ip_list):
             
         # Si es una IP real, consultamos la API
         try:
-            response = requests.get(f"http://ip-api.com/json/{ip}", timeout=2).json()
+            response = requests.get(f"http://ip-api.com/json/{ip}", timeout=10).json()
             if response['status'] == 'success':
                 locations.append({
                     'ip': ip,
@@ -190,7 +190,9 @@ def get_geolocation(ip_list):
                     'isp': response['isp'],
                     'org': response.get('org', 'Unknown')
                 })
-                time.sleep(1.5)
+            else:
+                print(f"⚠️ API falló para {ip}: {response.get('message')}")
+            time.sleep(1.5)
         except Exception as e:
             print(f"Error geolocalizando {ip}: {e}")
             pass 
