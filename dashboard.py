@@ -10,63 +10,71 @@ from streamlit_autorefresh import st_autorefresh
 import random
 
 # ==========================================
-# 🔐 SISTEMA DE LOGIN (Pegar esto al inicio)
+# 🔐 SISTEMA DE LOGIN (VERSIÓN ROBUSTA)
 # ==========================================
 def check_password():
     """Retorna True si el usuario ingresó la contraseña correcta."""
     
-    # 1. Definir la contraseña (la toma del .env o usa una por defecto)
-    CORRECT_PASSWORD = os.getenv("DASHBOARD_PASSWORD") 
-
+    # 1. Obtener contraseña segura del entorno
+    CORRECT_PASSWORD = os.getenv("DASHBOARD_PASSWORD")
+    
+    # 2. Si no hay contraseña en el .env, BLOQUEAR ACCESO por seguridad
     if not CORRECT_PASSWORD:
-        st.error("⚠️ ERROR DE SEGURIDAD: No se ha configurado la contraseña en el archivo .env")
+        st.error("⚠️ ERROR CRÍTICO DE SEGURIDAD: No se ha configurado DASHBOARD_PASSWORD en el archivo .env")
         st.stop()
 
-    # 2. Verificar si ya está logueado en la sesión
+    # 3. Inicializar estado de sesión si no existe
     if "password_correct" not in st.session_state:
         st.session_state.password_correct = False
 
-    # 3. Función para validar el input
-    def password_entered():
-        if st.session_state["password_input"] == CORRECT_PASSWORD:
-            st.session_state.password_correct = True
-            del st.session_state["password_input"]  # Borrar contraseña de memoria
-        else:
-            st.session_state.password_correct = False
+    # 4. Si ya está logueado, salir de la función y permitir carga del dashboard
+    if st.session_state.password_correct:
+        return
 
-    # 4. Mostrar pantalla de Login si no está logueado
-    if not st.session_state.password_correct:
-        st.set_page_config(page_title="ShadowShell Login", page_icon="🔐")
-        st.markdown(
-            """
-            <style>
-            .stApp {align-items: center; justify-content: center;}
-            </style>
-            """,
-            unsafe_allow_html=True
-        )
-        st.title("🛡️ ShadowShell Access")
-        st.text_input(
-            "Ingrese la clave de acceso:", 
-            type="password", 
-            on_change=password_entered, 
-            key="password_input"
-        )
-        st.warning("⚠️ Acceso restringido únicamente a personal autorizado.")
-        
-        # ⛔ AQUÍ SE DETIENE TODO SI NO HAY LOGIN ⛔
-        st.stop()  
+    # 5. Interfaz de Login
+    st.set_page_config(page_title="ShadowShell Login", page_icon="🔐")
+    
+    st.markdown(
+        """
+        <style>
+        .stApp {align-items: center; justify-content: center;}
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+    
+    st.title("🛡️ ShadowShell Access")
+    st.markdown("---")
+    
+    # Input de contraseña sin callback complejo
+    password_input = st.text_input("Ingrese la clave de acceso:", type="password")
+
+    # 6. Validación Directa
+    if password_input:
+        if password_input == CORRECT_PASSWORD:
+            st.session_state.password_correct = True
+            st.rerun()  # Recarga inmediata para limpiar la pantalla de login
+        else:
+            st.error("⛔ Contraseña incorrecta. Intente nuevamente.")
+
+    # ⛔ DETENER EJECUCIÓN AQUÍ SI NO ESTÁ LOGUEADO
+    st.stop()
 
 # Ejecutar el check antes de cualquier otra cosa
 check_password()
 
-# Configuración de la página
+# ==========================================
+# 🚀 INICIO DEL DASHBOARD REAL
+# ==========================================
+
+# Configuración de la página (Solo se ejecuta si pasó el login)
 st.set_page_config(
     page_title="ShadowShell | C2",
     page_icon="🕵️‍♂️",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
+
 count = st_autorefresh(interval=2000, limit=None, key="fizzbuzzcounter")
 st.title("🕵️‍♂️ ShadowShell - Monitor de Amenazas en Vivo")
 st.markdown("---")
@@ -89,7 +97,7 @@ def load_data():
         st.error(f"Error DB: {e}")
         return pd.DataFrame(), pd.DataFrame()
     
-    # --- FUNCIÓN MITRE ATT&CK ---
+# --- FUNCIÓN MITRE ATT&CK ---
 def map_mitre_tactic(command):
     """Clasifica el comando según la matriz MITRE ATT&CK"""
     cmd = command.lower()
@@ -186,8 +194,9 @@ def get_geolocation(ip_list):
         except Exception as e:
             print(f"Error geolocalizando {ip}: {e}")
             pass 
-            if not locations:
-                return pd.DataFrame(columns=['lat', 'lon', 'city', 'country', 'isp', 'org'])
+            
+    if not locations:
+        return pd.DataFrame(columns=['lat', 'lon', 'city', 'country', 'isp', 'org'])
     return pd.DataFrame(locations)
 
 # Cargar datos
