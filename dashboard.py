@@ -83,7 +83,7 @@ st.markdown("---")
 def load_data():
     try:
         base_dir = os.path.dirname(os.path.abspath(__file__))
-        db_path = os.path.join(base_dir, 'DATA', 'interacciones.db')
+        db_path = os.path.join(base_dir, 'data', 'interacciones.db')
         
         if not os.path.exists(db_path):
             return pd.DataFrame(), pd.DataFrame()

@@ -2,7 +2,7 @@ import sqlite3
 import os
 
 class Logger:
-    def __init__(self, db_path="DATA/interacciones.db"):
+    def __init__(self, db_path="data/interacciones.db"):
         os.makedirs(os.path.dirname(db_path), exist_ok=True)
         self.db_path = db_path
         self._init_db()
