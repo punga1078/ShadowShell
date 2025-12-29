@@ -8,6 +8,8 @@ import time
 import json
 from streamlit_autorefresh import st_autorefresh
 import random
+from fpdf import FPDF
+from datetime import datetime
 
 # ==========================================
 # 🔐 SISTEMA DE LOGIN (VERSIÓN ROBUSTA)
@@ -64,26 +66,109 @@ def check_password():
 check_password()
 
 # ==========================================
+# 📄 MOTOR DE REPORTES PDF (NUEVO)
+# ==========================================
+class PDFReport(FPDF):
+    def header(self):
+        self.set_font('Arial', 'B', 16)
+        self.cell(0, 10, 'ShadowShell - Informe de Inteligencia de Amenazas', 0, 1, 'C')
+        self.set_font('Arial', 'I', 10)
+        self.cell(0, 10, f'Generado el: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}', 0, 1, 'C')
+        self.ln(10)
+
+    def footer(self):
+        self.set_y(-15)
+        self.set_font('Arial', 'I', 8)
+        self.cell(0, 10, f'Pagina {self.page_no()}', 0, 0, 'C')
+
+def create_pdf(df_sess, df_cmds, risk_score):
+    pdf = PDFReport()
+    pdf.add_page()
+    pdf.set_font("Arial", size=12)
+    
+    # 1. Resumen Ejecutivo
+    pdf.set_font("Arial", 'B', 14)
+    pdf.cell(0, 10, "1. Resumen Ejecutivo", 0, 1)
+    pdf.set_font("Arial", size=11)
+    
+    total_attacks = len(df_sess)
+    unique_ips = df_sess['ip'].nunique() if not df_sess.empty else 0
+    total_cmds = len(df_cmds)
+    
+    pdf.cell(0, 8, f"- Total de Intrusiones Detectadas: {total_attacks}", 0, 1)
+    pdf.cell(0, 8, f"- Atacantes Unicos: {unique_ips}", 0, 1)
+    pdf.cell(0, 8, f"- Comandos Capturados: {total_cmds}", 0, 1)
+    pdf.cell(0, 8, f"- Nivel de Riesgo Promedio (AbuseIPDB): {risk_score:.1f}%", 0, 1)
+    pdf.ln(5)
+
+    # 2. Top Atacantes
+    pdf.set_font("Arial", 'B', 14)
+    pdf.cell(0, 10, "2. Top 5 Direcciones IP Hostiles", 0, 1)
+    pdf.set_font("Arial", size=10)
+    
+    # Cabecera de tabla
+    pdf.set_fill_color(200, 220, 255)
+    pdf.cell(50, 8, "Direccion IP", 1, 0, 'C', 1)
+    pdf.cell(40, 8, "Intentos", 1, 0, 'C', 1)
+    pdf.cell(60, 8, "Usuario mas usado", 1, 1, 'C', 1)
+    
+    if not df_sess.empty:
+        top_ips = df_sess['ip'].value_counts().head(5)
+        for ip, count in top_ips.items():
+            # Buscar usuario más usado por esta IP
+            try:
+                top_user = df_sess[df_sess['ip'] == ip]['username'].mode()[0]
+            except:
+                top_user = "Unknown"
+            pdf.cell(50, 8, str(ip), 1)
+            pdf.cell(40, 8, str(count), 1, 0, 'C')
+            pdf.cell(60, 8, str(top_user), 1, 1)
+    else:
+        pdf.cell(0, 8, "Sin datos suficientes.", 1, 1)
+    pdf.ln(5)
+
+    # 3. Comandos Críticos
+    pdf.set_font("Arial", 'B', 14)
+    pdf.cell(0, 10, "3. Evidencia Forense (Ultimos Comandos Criticos)", 0, 1)
+    pdf.set_font("Courier", size=9) # Fuente tipo consola
+    
+    if not df_cmds.empty:
+        # Filtramos comandos interesantes
+        crits = df_cmds[df_cmds['command'].str.contains("wget|curl|sudo|rm|cat", case=False)].head(10)
+        if crits.empty:
+            crits = df_cmds.head(5)
+            
+        for idx, row in crits.iterrows():
+            clean_cmd = str(row['command'])[:60] # Cortar si es muy largo
+            # Evitar caracteres que rompan PDF
+            clean_cmd = clean_cmd.encode('latin-1', 'replace').decode('latin-1')
+            pdf.cell(0, 6, f"[{row['timestamp']}] {row['ip']} $ {clean_cmd}", 0, 1)
+    else:
+        pdf.cell(0, 8, "Sin comandos registrados.", 0, 1)
+
+    return pdf.output(dest='S').encode('latin-1', 'replace')
+
+# ==========================================
 # 🚀 INICIO DEL DASHBOARD REAL
 # ==========================================
 
-# Configuración de la página (Solo se ejecuta si pasó el login)
 st.set_page_config(
-    page_title="ShadowShell | C2",
+    page_title="ShadowShell | CTI",
     page_icon="🕵️‍♂️",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
 
-count = st_autorefresh(interval=5000, limit=None, key="fizzbuzzcounter") # Subí a 5s para no saturar
-st.title("🕵️‍♂️ ShadowShell - Monitor de Amenazas en Vivo")
+# Refresco automático cada 10 segundos (para dar tiempo a la API)
+count = st_autorefresh(interval=10000, limit=None, key="fizzbuzzcounter") 
+st.title("🕵️‍♂️ ShadowShell - Threat Intelligence Dashboard")
+st.caption("Monitor de Amenazas SSH + Enriquecimiento con AbuseIPDB")
 st.markdown("---")
 
 # --- FUNCIÓN DE CARGA DE DATOS ---
 def load_data():
     try:
         base_dir = os.path.dirname(os.path.abspath(__file__))
-        # Usamos 'data' en minúscula como corregimos antes
         db_path = os.path.join(base_dir, 'data', 'interacciones.db')
         
         if not os.path.exists(db_path):
@@ -97,36 +182,56 @@ def load_data():
     except Exception as e:
         st.error(f"Error DB: {e}")
         return pd.DataFrame(), pd.DataFrame()
+
+# --- NUEVO: CONSULTA A ABUSEIPDB (Con Caché Inteligente) ---
+@st.cache_data(show_spinner=False, ttl=3600*24) # Guardar en caché por 24hs
+def check_abuseipdb(ip):
+    """Consulta la reputación de una IP en AbuseIPDB"""
     
+    # Ignorar IPs privadas
+    if ip.startswith("127.") or ip.startswith("192.168.") or ip.startswith("10.") or ip.startswith("172."):
+        return {"score": 0, "usage": "Private/Local", "domain": "Localhost", "country": "Local"}
+
+    api_key = os.getenv("ABUSEIPDB_KEY")
+    if not api_key:
+        return {"score": -1, "usage": "No API Key", "domain": "Unknown", "country": "?"}
+
+    url = 'https://api.abuseipdb.com/api/v2/check'
+    headers = {'Key': api_key, 'Accept': 'application/json'}
+    params = {'ipAddress': ip, 'maxAgeInDays': '90'}
+
+    try:
+        # Pequeña pausa para no romper límites de API gratis
+        time.sleep(0.5)
+        response = requests.get(url, headers=headers, params=params, timeout=5)
+        if response.status_code == 200:
+            data = response.json()['data']
+            return {
+                "score": data.get('abuseConfidenceScore', 0),
+                "usage": data.get('usageType', 'Unknown'),
+                "domain": data.get('domain', 'Unknown'),
+                "country": data.get('countryCode', 'Unknown')
+            }
+        else:
+            return {"score": -1, "usage": "API Error", "domain": "Unknown", "country": "?"}
+    except:
+        return {"score": -1, "usage": "Conn Error", "domain": "Unknown", "country": "?"}
+
 # --- FUNCIÓN MITRE ATT&CK ---
 def map_mitre_tactic(command):
-    """Clasifica el comando según la matriz MITRE ATT&CK"""
     cmd = command.lower()
-    
-    # Diccionario de reglas simples
-    if "wget" in cmd or "curl" in cmd:
-        return "Resource Development (T1588)" # Descargar herramientas
-    elif "rm " in cmd or "history -c" in cmd:
-        return "Defense Evasion (T1070)"      # Borrar huellas
-    elif "cat /etc/shadow" in cmd or "cat passwords" in cmd:
-        return "Credential Access (T1003)"    # Robar claves
-    elif "sudo" in cmd or "su " in cmd:
-        return "Privilege Escalation (T1068)" # Intentar ser root
-    elif "ls" in cmd or "ps" in cmd or "whoami" in cmd:
-        return "Discovery (T1082)"            # Espiar el sistema
-    elif "./" in cmd or "python" in cmd or "bash" in cmd:
-        return "Execution (T1059)"            # Ejecutar scripts
-    else:
-        return "Uncategorized"
+    if "wget" in cmd or "curl" in cmd: return "Resource Development (T1588)"
+    elif "rm " in cmd or "history -c" in cmd: return "Defense Evasion (T1070)"
+    elif "cat /etc/shadow" in cmd or "cat passwords" in cmd: return "Credential Access (T1003)"
+    elif "sudo" in cmd or "su " in cmd: return "Privilege Escalation (T1068)"
+    elif "ls" in cmd or "ps" in cmd or "whoami" in cmd: return "Discovery (T1082)"
+    elif "./" in cmd or "python" in cmd or "bash" in cmd: return "Execution (T1059)"
+    else: return "Uncategorized"
 
-# --- NUEVO: FUNCIÓN DE GEOLOCALIZACIÓN OPTIMIZADA ---
-# 1. Función PEQUEÑA que se encarga de UNA sola IP (Esta es la que tiene memoria)
+# --- GEOLOCALIZACIÓN OPTIMIZADA ---
 @st.cache_data(show_spinner=False)
 def get_single_ip_data(ip):
-    """Consulta la API para una sola IP y guarda el resultado en memoria"""
-    
-    # Simulación para IPs privadas (igual que antes)
-    if ip == "localhost" or ip.startswith("127.") or ip.startswith("192.168.") or ip.startswith("10."):
+    if ip == "localhost" or ip.startswith("127.") or ip.startswith("192.168.") or ip.startswith("10.") or ip.startswith("172."):
         fake_locations = [
             {'lat': 55.7558, 'lon': 37.6173, 'city': 'Moscow', 'country': 'Russia'},
             {'lat': 39.9042, 'lon': 116.4074, 'city': 'Beijing', 'country': 'China'},
@@ -134,58 +239,27 @@ def get_single_ip_data(ip):
         ]
         random.seed(ip)
         fake = random.choice(fake_locations)
-        return {
-            'ip': ip, 'lat': fake['lat'], 'lon': fake['lon'], 
-            'city': f"{fake['city']} (Simulado)", 'country': fake['country'], 
-            'isp': 'Private', 'org': 'Private'
-        }
+        return {'ip': ip, 'lat': fake['lat'], 'lon': fake['lon'], 'city': f"{fake['city']} (Sim)", 'country': fake['country'], 'isp': 'Private', 'org': 'Private'}
 
-    # Consulta REAL a la API
     try:
-        # Pausa pequeña para respetar límites (solo se ejecuta si la IP es nueva)
         time.sleep(1.1) 
         response = requests.get(f"http://ip-api.com/json/{ip}", timeout=5).json()
-        
         if response['status'] == 'success':
-            return {
-                'ip': ip,
-                'lat': response['lat'],
-                'lon': response['lon'],
-                'city': response['city'],
-                'country': response['country'],
-                'isp': response['isp'],
-                'org': response.get('org', 'Unknown')
-            }
-        else:
-            return None # Falló la API para esta IP específica
-    except:
-        return None # Error de conexión
+            return {'ip': ip, 'lat': response['lat'], 'lon': response['lon'], 'city': response['city'], 
+                    'country': response['country'], 'isp': response['isp'], 'org': response.get('org', 'Unknown')}
+        else: return None
+    except: return None
 
-# 2. Función PRINCIPAL (Ya no lleva caché aquí, porque la tiene la función de arriba)
 def get_geolocation(ip_list):
     locations = []
-    
-    # Barra de progreso visual si hay muchas IPs nuevas
     if len(ip_list) > 0:
-        progress_text = "Geolocalizando atacantes..."
-        my_bar = st.progress(0, text=progress_text)
-
+        my_bar = st.progress(0, text="Geolocalizando atacantes...")
     for i, ip in enumerate(ip_list):
-        data = get_single_ip_data(ip) # <--- Aquí ocurre la magia del caché
-        if data:
-            locations.append(data)
-        
-        # Actualizar barra de progreso
-        if len(ip_list) > 0:
-            my_bar.progress((i + 1) / len(ip_list), text=progress_text)
-            
-    if len(ip_list) > 0:
-        my_bar.empty() # Borrar la barra cuando termine
-
-    if not locations:
-        return pd.DataFrame(columns=['lat', 'lon', 'city', 'country', 'isp', 'org'])
-        
-    return pd.DataFrame(locations)
+        data = get_single_ip_data(ip)
+        if data: locations.append(data)
+        if len(ip_list) > 0: my_bar.progress((i + 1) / len(ip_list))
+    if len(ip_list) > 0: my_bar.empty()
+    return pd.DataFrame(locations) if locations else pd.DataFrame(columns=['lat', 'lon', 'city', 'country', 'isp', 'org'])
 
 # Cargar datos
 df_sessions, df_commands = load_data()
@@ -220,48 +294,100 @@ if st.button('🔄 Refrescar Datos'):
 col1, col2, col3, col4 = st.columns(4)
 with col1: st.metric("Intrusiones Totales", len(df_sessions))
 with col2: st.metric("Atacantes Únicos", df_sessions['ip'].nunique() if not df_sessions.empty else 0)
-with col3: st.metric("Comandos Capturados", len(df_commands))
-with col4: st.metric("Usuario + Común", df_sessions['username'].mode()[0] if not df_sessions.empty else "N/A")
+with col3: st.metric("Comandos EXEC/Shell", len(df_commands))
+
+# KPI DE RIESGO (Nuevo)
+avg_risk = 0
+if not df_sessions.empty:
+    sample_ips = df_sessions['ip'].unique()[:5] # Muestra rápida
+    total_score = 0
+    valid_samples = 0
+    for ip in sample_ips:
+        res = check_abuseipdb(ip)
+        if res['score'] >= 0:
+            total_score += res['score']
+            valid_samples += 1
+    if valid_samples > 0:
+        avg_risk = total_score / valid_samples
+    
+with col4: 
+    st.metric("Nivel de Amenaza (Avg)", f"{avg_risk:.1f}%", delta="Abuse Score Promedio", delta_color="inverse")
 
 # =========================================================
-#  NUEVO: TABLAS SEPARADAS (SOLICITUD 1)
+#  NUEVO: SECCIÓN DE INTELIGENCIA DE AMENAZAS (CTI)
+# =========================================================
+st.markdown("---")
+st.subheader("🧬 Análisis de Inteligencia (AbuseIPDB)")
+st.caption("Verificación de reputación criminal en tiempo real de los Top 10 atacantes.")
+
+if not df_sessions.empty:
+    unique_attackers = df_sessions['ip'].value_counts().reset_index()
+    unique_attackers.columns = ['IP', 'Intentos']
+    
+    reputation_data = []
+    
+    # Analizamos Top 10 para no saturar API
+    for index, row in unique_attackers.head(10).iterrows():
+        ip = row['IP']
+        intel = check_abuseipdb(ip)
+        reputation_data.append({
+            "IP": ip,
+            "Intentos": row['Intentos'],
+            "Riesgo (0-100)": intel['score'],
+            "Uso": intel['usage'],
+            "Dominio": intel['domain'],
+            "País": intel['country']
+        })
+    
+    df_rep = pd.DataFrame(reputation_data)
+    
+    # Función para colorear filas peligrosas
+    def color_risk(val):
+        color = '#0e1117' # default
+        if isinstance(val, int):
+            if val > 75: color = '#5a0000' # Rojo Oscuro (Peligro Extremo)
+            elif val > 50: color = '#5a3a00' # Naranja Oscuro (Peligro)
+        return f'background-color: {color}'
+
+    st.dataframe(
+        df_rep.style.background_gradient(subset=['Riesgo (0-100)'], cmap='Reds', vmin=0, vmax=100),
+        use_container_width=True
+    )
+else:
+    st.info("Esperando atacantes para analizar reputación...")
+
+# =========================================================
+#  TABLAS DE LOGS DETALLADOS
 # =========================================================
 st.markdown("---")
 col_logins, col_cmds = st.columns(2)
 
 with col_logins:
     st.subheader("🕵️ Últimos Logins")
-    st.caption("Quién logró entrar (User/Pass)")
     if not df_sessions.empty:
         st.dataframe(df_sessions[['timestamp', 'ip', 'username', 'password']], hide_index=True, use_container_width=True)
     else:
-        st.info("Sin registros de sesión.")
+        st.info("Sin registros.")
 
 with col_cmds:
     st.subheader("⌨️ Comandos Ejecutados")
-    st.caption("Qué escribieron (Shell + Exec)")
     if not df_commands.empty:
-        # Mostramos vt_result si existe (para ver los EXEC capturados)
         cols_cmd = ['timestamp', 'ip', 'command']
         if 'vt_result' in df_commands.columns:
             cols_cmd.append('vt_result')
         st.dataframe(df_commands[cols_cmd], hide_index=True, use_container_width=True)
     else:
-        st.info("Sin comandos capturados.")
+        st.info("Sin comandos.")
 
 st.markdown("---")
 
-# --- PESTAÑAS PRINCIPALES  ---
+# --- PESTAÑAS PRINCIPALES ---
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-    "🗺️ Mapa de Amenazas", 
-    "💀 Actividad en Vivo", 
-    "🦠 Malware", 
-    "🔐 Credenciales", 
-    "📊 Gráficos",
-    "🛡️ MITRE ATT&CK" 
+    "🗺️ Mapa de Amenazas", "💀 Actividad en Vivo", "🦠 Malware", 
+    "🔐 Credenciales", "📊 Gráficos", "🛡️ MITRE ATT&CK" 
 ])
 
-# PESTAÑA 1: MAPA (ACTUALIZADA CON GRÁFICO DE PAÍSES)
+# PESTAÑA 1: MAPA
 with tab1:
     st.subheader("🌍 Origen de los Ataques")
     if not df_sessions.empty:
@@ -269,140 +395,35 @@ with tab1:
         df_geo = get_geolocation(unique_ips)
         
         if not df_geo.empty:
-            # --- 1. EL MAPA MUNDIAL ---
             attack_counts = df_sessions['ip'].value_counts().reset_index()
             attack_counts.columns = ['ip', 'count']
-            
             df_map = pd.merge(df_geo, attack_counts, on='ip')
             
             fig_map = px.scatter_geo(
-                df_map,
-                lat='lat',
-                lon='lon',
-                color='count',
-                size='count',
-                hover_name='city',
-                hover_data={'ip': True, 'country': True, 'isp': True, 'org': True, 'lat': False, 'lon': False, 'count': True},
-                projection="natural earth",
-                title="Geolocalización de Intrusos",
+                df_map, lat='lat', lon='lon', color='count', size='count',
+                hover_name='city', hover_data=['ip', 'country', 'isp', 'org'],
+                projection="natural earth", title="Geolocalización de Intrusos",
                 color_continuous_scale="Reds"
             )
-            fig_map.update_layout(
-                margin={"r":0,"t":30,"l":0,"b":0},
-                geo=dict(bgcolor='rgba(0,0,0,0)', showland=True, landcolor="#2E2E2E", showocean=True, oceancolor="#0E1117")
-            )
+            fig_map.update_layout(margin={"r":0,"t":30,"l":0,"b":0}, geo=dict(bgcolor='rgba(0,0,0,0)', showland=True, landcolor="#2E2E2E"))
             st.plotly_chart(fig_map, use_container_width=True)
 
-            # --- 2. ESTADÍSTICAS (ORGANIZACIÓN + PAÍSES) ---
-            st.markdown("---")
             col_geo1, col_geo2 = st.columns(2)
-
             with col_geo1:
-                st.subheader("🏳️ Top Países (NUEVO)") # <--- SOLICITUD 2
                 if 'country' in df_map.columns:
-                    country_counts = df_map['country'].value_counts()
-                    st.bar_chart(country_counts, color="#ff4b4b", horizontal=True)
-                else:
-                    st.info("Datos de país no disponibles.")
-
+                    st.bar_chart(df_map['country'].value_counts(), color="#ff4b4b", horizontal=True)
             with col_geo2:
-                st.subheader("🏢 Top Organizaciones")
                 if 'org' in df_map.columns:
-                    org_counts = df_map['org'].value_counts().head(10)
-                    st.bar_chart(org_counts, horizontal=True)
-                else:
-                    st.info("Datos de organización no disponibles.")
-
-            # --- 3. GRÁFICO DE TORTA ISP ---
-            st.markdown("---")
-            st.subheader("📡 Distribución por ISP")
-            if 'isp' in df_map.columns:
-                isp_counts = df_map['isp'].value_counts().reset_index()
-                isp_counts.columns = ['ISP', 'Count']
-                fig_pie = px.pie(isp_counts, values='Count', names='ISP', hole=0.4, color_discrete_sequence=px.colors.sequential.RdBu)
-                st.plotly_chart(fig_pie, use_container_width=True)
-
+                    st.bar_chart(df_map['org'].value_counts().head(10), horizontal=True)
         else:
-            st.warning("No se pudieron geolocalizar las IPs (o no hay conexión a internet).")
+            st.warning("No se pudieron geolocalizar las IPs.")
     else:
         st.info("Sin datos para mostrar en el mapa.")
 
 # PESTAÑA 2: COMANDOS DETALLADOS
 with tab2:
-    st.subheader("📜 Últimos Comandos Ejecutados")
+    st.subheader("📜 Últimos Comandos")
     if not df_commands.empty:
         terminal_output = ""
         for index, row in df_commands.head(10).iterrows():
-            terminal_output += f"[{row['timestamp']}] root@{row['ip']}:~# {row['command']}\n"
-        st.code(terminal_output, language="bash")
-        st.dataframe(df_commands, use_container_width=True)
-    else:
-        st.info("Esperando comandos...")
-
-# PESTAÑA 3: MALWARE 
-with tab3:
-    st.subheader("🦠 Análisis de Amenazas (VirusTotal)")
-    if not df_commands.empty:
-        malware_cmds = df_commands[df_commands['command'].str.contains("wget|curl", case=False, na=False)].copy()
-        if not malware_cmds.empty:
-            st.warning(f"⚠️ Se han detectado {len(malware_cmds)} intentos de descarga de payload.")
-            cols_to_show = ['timestamp', 'ip', 'command']
-            if 'vt_result' in malware_cmds.columns:
-                cols_to_show.append('vt_result')
-            st.dataframe(malware_cmds[cols_to_show], use_container_width=True)
-        else:
-            st.success("✅ Limpio: No se han detectado intentos de descarga de malware todavía.")
-    else:
-        st.info("Esperando datos para analizar...")
-
-# PESTAÑA 4: CREDENCIALES 
-with tab4:
-    st.subheader("🎣 Base de Datos de Accesos")
-    if not df_sessions.empty:
-        col_a, col_b = st.columns([2, 1])
-        with col_a:
-            st.dataframe(df_sessions[['timestamp', 'ip', 'username', 'password']], use_container_width=True)
-        with col_b:
-            st.write("Top 5 Contraseñas")
-            top_pass = df_sessions['password'].value_counts().head(5)
-            st.bar_chart(top_pass, horizontal=True)
-    else:
-        st.info("Nadie ha intentado loguearse aún.")
-
-# PESTAÑA 5: GRÁFICOS 
-with tab5:
-    if not df_sessions.empty:
-        ip_counts = df_sessions['ip'].value_counts().reset_index()
-        ip_counts.columns = ['IP', 'Intentos']
-        fig = px.pie(ip_counts, values='Intentos', names='IP', title='Distribución de Ataques', hole=0.4)
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.info("Esperando datos para graficar...")
-
-# PESTAÑA 6: MITRE ATT&CK
-with tab6:
-    st.subheader("🕵️ Análisis Táctico (MITRE Framework)")
-    if not df_commands.empty:
-        df_mitre = df_commands.copy()
-        df_mitre['mitre_tactic'] = df_mitre['command'].apply(map_mitre_tactic)
-        mitre_counts = df_mitre['mitre_tactic'].value_counts()
-        
-        col_m1, col_m2 = st.columns([2, 1])
-        with col_m1:
-            st.bar_chart(mitre_counts, color="#ff4b4b", horizontal=True)
-        with col_m2:
-            if not mitre_counts.empty:
-                st.metric(label="Táctica Principal", value=mitre_counts.idxmax())
-                st.metric(label="Eventos", value=mitre_counts.max())
-    else:
-        st.info("Esperando datos de comandos...")
-
-# Exportar Datos
-@st.cache_data
-def convert_df(df):
-    return df.to_csv(index=False).encode('utf-8')
-
-st.sidebar.title("🗂️ Exportar")
-if not df_commands.empty:
-    csv = convert_df(df_commands)
-    st.sidebar.download_button(label="📥 Logs Comandos (CSV)", data=csv, file_name='shadowshell_logs.csv', mime='text/csv')
+            terminal_output += f"[{row['timestamp']}] root@{row['ip']}:~# {row['
