@@ -41,6 +41,18 @@ class Logger:
                 timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+        # --- NUEVA TABLA PARA WEB TRAPS ---
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS web_hits (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ip TEXT,
+                path TEXT,
+                method TEXT,
+                user_agent TEXT,
+                payload TEXT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
 
         conn.commit()
         conn.close()
@@ -68,3 +80,18 @@ class Logger:
             conn.close()
         except Exception as e:
             print(f"⚠️ Error DB Comando: {e}")
+    # --- NUEVA FUNCIÓN PARA LOGUEAR WEB ---
+    def log_web(self, ip, path, method, user_agent, payload=None):
+        print(f"🕸️ [WEB TRAP] {method} {path} from {ip}")
+        self._query("INSERT INTO web_hits (ip, path, method, user_agent, payload) VALUES (?, ?, ?, ?, ?)", 
+                   (ip, path, method, user_agent, payload))
+    # Helper privado para no repetir código de conexión
+    def _query(self, sql, params):
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute(sql, params)
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f"⚠️ Error DB: {e}")
