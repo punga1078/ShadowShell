@@ -173,16 +173,38 @@ def load_data():
         db_path = os.path.join(base_dir, 'data', 'interacciones.db')
         
         if not os.path.exists(db_path):
-            return pd.DataFrame(), pd.DataFrame()
+            # Devolvemos 3 DataFrames vacíos si no hay DB
+            return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
         conn = sqlite3.connect(db_path)
-        df_sessions = pd.read_sql_query("SELECT * FROM sessions ORDER BY timestamp DESC", conn)
-        df_commands = pd.read_sql_query("SELECT * FROM commands ORDER BY timestamp DESC", conn)
+        
+        # 1. Cargar Sesiones SSH
+        try:
+            df_sessions = pd.read_sql_query("SELECT * FROM sessions ORDER BY timestamp DESC", conn)
+        except:
+            df_sessions = pd.DataFrame()
+
+        # 2. Cargar Comandos SSH
+        try:
+            df_commands = pd.read_sql_query("SELECT * FROM commands ORDER BY timestamp DESC", conn)
+        except:
+            df_commands = pd.DataFrame()
+
+        # 3. Cargar Tráfico WEB (NUEVO)
+        try:
+            df_web = pd.read_sql_query("SELECT * FROM web_hits ORDER BY timestamp DESC", conn)
+        except:
+            # Si la tabla web_hits aún no existe, devolvemos un DF vacío con columnas base
+            df_web = pd.DataFrame(columns=['timestamp', 'ip', 'method', 'path', 'user_agent'])
+
         conn.close()
-        return df_sessions, df_commands
+        
+        # IMPORTANTE: Ahora retornamos 3 cosas
+        return df_sessions, df_commands, df_web
+
     except Exception as e:
         st.error(f"Error DB: {e}")
-        return pd.DataFrame(), pd.DataFrame()
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
 # --- NUEVO: CONSULTA A ABUSEIPDB (Con Caché Inteligente) ---
 @st.cache_data(show_spinner=False, ttl=3600*24) # Guardar en caché por 24hs
@@ -263,7 +285,7 @@ def get_geolocation(ip_list):
     return pd.DataFrame(locations) if locations else pd.DataFrame(columns=['lat', 'lon', 'city', 'country', 'isp', 'org'])
 
 # Cargar datos
-df_sessions, df_commands = load_data()
+df_sessions, df_commands, df_web = load_data()
 
 # --- SISTEMA DE DETECCIÓN DE AMENAZAS (IDS) ---
 st.subheader("🛡️ Monitor de Seguridad")
@@ -383,9 +405,9 @@ with col_cmds:
 st.markdown("---")
 
 # --- PESTAÑAS PRINCIPALES ---
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-    "🗺️ Mapa de Amenazas", "💀 Actividad en Vivo", "🦠 Malware", 
-    "🔐 Credenciales", "📊 Gráficos", "🛡️ MITRE ATT&CK" 
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+    "🗺️ Mapa", "💀 Vivo", "🦠 Malware", 
+    "🔐 Credenciales", "📊 Gráficos", "🛡️ MITRE", "🕸️ Web Traps"
 ])
 
 # PESTAÑA 1: MAPA
@@ -468,6 +490,20 @@ with tab6:
         df_mitre['mitre_tactic'] = df_mitre['command'].apply(map_mitre_tactic)
         st.bar_chart(df_mitre['mitre_tactic'].value_counts(), color="#ff4b4b", horizontal=True)
 
+# PESTAÑA 7: WEB TRAPS
+with tab7:
+    st.subheader("🕸️ Tráfico HTTP Capturado")
+    if not df_web.empty:
+        col_w1, col_w2 = st.columns(2)
+        with col_w1: st.metric("Peticiones Web", len(df_web))
+        with col_w2: st.metric("Rutas Probadas", df_web['path'].nunique())
+        
+        st.dataframe(df_web[['timestamp', 'ip', 'method', 'path', 'user_agent']], use_container_width=True)
+        
+        st.caption("Rutas más atacadas:")
+        st.bar_chart(df_web['path'].value_counts().head(10), horizontal=True)
+    else:
+        st.info("El servidor web honeypot está activo, pero nadie lo ha atacado aún.")
 # Exportar
 @st.cache_data
 def convert_df(df): return df.to_csv(index=False).encode('utf-8')
