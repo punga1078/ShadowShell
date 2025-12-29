@@ -8,6 +8,7 @@ import time
 import json
 from streamlit_autorefresh import st_autorefresh
 import random
+# --- NUEVAS LIBRERÍAS PARA PDF ---
 from fpdf import FPDF
 from datetime import datetime
 
@@ -426,4 +427,70 @@ with tab2:
     if not df_commands.empty:
         terminal_output = ""
         for index, row in df_commands.head(10).iterrows():
-            terminal_output += f"[{row['timestamp']}] root@{row['ip']}:~# {row['
+            terminal_output += f"[{row['timestamp']}] root@{row['ip']}:~# {row['command']}\n"
+        st.code(terminal_output, language="bash")
+        st.dataframe(df_commands, use_container_width=True)
+
+# PESTAÑA 3: MALWARE 
+with tab3:
+    st.subheader("🦠 Análisis VirusTotal")
+    if not df_commands.empty:
+        malware_cmds = df_commands[df_commands['command'].str.contains("wget|curl", case=False, na=False)].copy()
+        if not malware_cmds.empty:
+            st.warning(f"⚠️ {len(malware_cmds)} intentos de descarga detectados.")
+            cols = ['timestamp', 'ip', 'command']
+            if 'vt_result' in malware_cmds.columns: cols.append('vt_result')
+            st.dataframe(malware_cmds[cols], use_container_width=True)
+        else:
+            st.success("✅ Sistema Limpio.")
+
+# PESTAÑA 4: CREDENCIALES 
+with tab4:
+    st.subheader("🎣 Base de Datos de Accesos")
+    if not df_sessions.empty:
+        col_a, col_b = st.columns([2, 1])
+        with col_a: st.dataframe(df_sessions[['timestamp', 'ip', 'username', 'password']], use_container_width=True)
+        with col_b: st.bar_chart(df_sessions['password'].value_counts().head(5), horizontal=True)
+
+# PESTAÑA 5: GRÁFICOS 
+with tab5:
+    if not df_sessions.empty:
+        ip_counts = df_sessions['ip'].value_counts().reset_index()
+        ip_counts.columns = ['IP', 'Intentos']
+        fig = px.pie(ip_counts, values='Intentos', names='IP', title='Distribución de Ataques', hole=0.4)
+        st.plotly_chart(fig, use_container_width=True)
+
+# PESTAÑA 6: MITRE ATT&CK
+with tab6:
+    st.subheader("🕵️ Análisis MITRE ATT&CK")
+    if not df_commands.empty:
+        df_mitre = df_commands.copy()
+        df_mitre['mitre_tactic'] = df_mitre['command'].apply(map_mitre_tactic)
+        st.bar_chart(df_mitre['mitre_tactic'].value_counts(), color="#ff4b4b", horizontal=True)
+
+# Exportar
+@st.cache_data
+def convert_df(df): return df.to_csv(index=False).encode('utf-8')
+st.sidebar.title("🗂️ Exportar Datos")
+st.sidebar.markdown("Descarga los logs para tu informe forense.")
+
+if not df_commands.empty:
+    st.sidebar.download_button(label="📥 Logs CSV", data=convert_df(df_commands), file_name='shadowshell_logs.csv', mime='text/csv')
+
+# --- NUEVO: BOTÓN GENERAR PDF ---
+st.sidebar.markdown("---")
+st.sidebar.title("📄 Reporte Ejecutivo")
+st.sidebar.markdown("Informe para LinkedIn/Gerencia.")
+
+if st.sidebar.button("🖨️ Generar Informe PDF"):
+    with st.spinner("Compilando datos forenses..."):
+        # Llamamos a la función con el riesgo calculado en los KPIs
+        pdf_bytes = create_pdf(df_sessions, df_commands, avg_risk)
+        
+        st.sidebar.download_button(
+            label="📥 Descargar PDF",
+            data=pdf_bytes,
+            file_name=f"ShadowShell_Report_{datetime.now().strftime('%Y%m%d')}.pdf",
+            mime="application/pdf"
+        )
+        st.sidebar.success("¡Informe generado!")
