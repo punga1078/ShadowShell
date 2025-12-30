@@ -47,6 +47,16 @@ Se identificó a la IP `91.224.xx.xx` atacando simultáneamente por dos vectores
 
 **SSH (Puerto 2222)**: Ejecución de comandos de reconocimiento. Esto indica un escáner de vulnerabilidades avanzado buscando cualquier punto de entrada disponible.
 
+### 🤖 E. Análisis de Infraestructura (Fingerprinting)
+La inspección profunda de paquetes (DPI) en el tráfico SSH reveló que el **80% de las conexiones** no provienen de clientes humanos (como OpenSSH o PuTTY), sino de librerías de automatización y botnets.
+
+**Firmas Detectadas (SSH Handshake):**
+* `SSH-2.0-Go`: Indicativo de botnets modernas (variantes de Mirai) escritas en Go para concurrencia masiva.
+* `SSH-2.0-ZGrab`: Herramienta de escaneo masivo utilizada frecuentemente para mapear internet (detectada en `traffic.pcap2`).
+* `SSH-2.0-libssh2`: Librería común en scripts de fuerza bruta Python/C.
+
+![Wireshark Fingerprinting](../evidence/network_traffic.png)
+
 ### 3. Indicadores de Compromiso (IOCs) top
 <table> <thead> <tr> <th>IP (Masked)</th> <th>País</th> <th>Severidad</th> <th>Comportamiento</th> </tr> </thead> <tbody> <tr> <td>182.117.xx.xx</td> <td>PK</td> <td><span style="color:red; font-weight:bold;">CRÍTICO</span></td> <td>Intento de robo de sesión Telegram / SMS</td> </tr> <tr> <td>91.215.xx.xx</td> <td>RU</td> <td><span style="color:orange; font-weight:bold;">ALTO</span></td> <td>Fuerza bruta masiva (User: support)</td> </tr> <tr> <td>130.12.xx.xx</td> <td>US</td> <td><span style="color:goldenrod; font-weight:bold;">MEDIO</span></td> <td>Descarga de scripts (Wget / Curl)</td> </tr> <tr> <td>91.224.xx.xx</td> <td>DE</td> <td><span style="color:goldenrod; font-weight:bold;">MEDIO</span></td> <td>Ataque Multi-vector (Web + SSH)</td> </tr> </tbody> </table>
 
