@@ -111,11 +111,11 @@ Ejecutar Comandos Maliciosos: Dentro de la shell falsa, prueba estos comandos pa
 
 📂ShadowShell/ 
 |
-├── 📂analysis/         # Informes técnicos y hallazgos forenses
-├── 📂evidence/         # Capturas de pantalla y logs censurados
-├── 📂data/             # Persistencia (Base de datos SQLite y Logs)  
-├── 📂SRC/  
-│   ├── logger.py       # Gestión de logs y base de datos  
+├── 📂analysis/         # Informes técnicos y hallazgos forenses  
+├── 📂evidence/         # Capturas de pantalla y logs censurados  
+├── 📂data/             # Persistencia (Base de datos SQLite y Logs)    
+├── 📂SRC/    
+│   ├── logger.py       # Gestión de logs y base de datos    
 │   ├── notifier.py     # Sistema de alertas a Telegram  
 │   ├── shell_emulator.py # Simulación de terminal Linux y Honeyfiles  
 │   └── vt_scanner.py   # Integración con VirusTotal API  
