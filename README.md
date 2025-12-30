@@ -109,8 +109,8 @@ Ejecutar Comandos Maliciosos: Dentro de la shell falsa, prueba estos comandos pa
    rm -rf /
  ```
 
-📂ShadowShell/ 
-|
+📂ShadowShell/   
+|  
 ├── 📂analysis/         # Informes técnicos y hallazgos forenses  
 ├── 📂evidence/         # Capturas de pantalla y logs censurados  
 ├── 📂data/             # Persistencia (Base de datos SQLite y Logs)    
