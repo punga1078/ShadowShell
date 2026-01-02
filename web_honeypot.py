@@ -36,18 +36,25 @@ def catch_all(path):
 
     # 4. [NUEVO] Escribir en log plano para Wazuh
     try:
-        # Generamos timestamp igual que el SSH: 2026-01-01 22:00:00,000
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S,%f")[:-3]
-        
-        # Formato: FECHA - MENSAJE
-        # El mensaje incluye [WEB TRAP] para que la regla de Wazuh lo detecte
         log_line = f"{timestamp} - [WEB TRAP] IP: {ip} | Method: {method} | Path: {full_path} | UA: {user_agent}\n"
-        
-        # Escribimos en el archivo que vigila el agente
-        with open("data/access.log", "a") as f:
-            f.write(log_line)
+
+    # --- CAMBIO CRÍTICO: RUTA ABSOLUTA ---
+    # Calcula la ruta exacta donde está este script .py dentro del Docker (/app)
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+    # Une la ruta base con 'data/access.log' -> /app/data/access.log
+        log_path = os.path.join(base_dir, 'data', 'access.log')
+
+    # Imprimir en consola de Docker para confirmar que pasa por aquí
+        print(f"📝 [DEBUG] Intentando escribir en: {log_path}") 
+
+        with open(log_path, "a") as f:
+        f.write(log_line)
+        f.flush()            # Fuerza el vaciado del buffer de Python
+        os.fsync(f.fileno()) # Fuerza al sistema operativo a guardar en disco
+
     except Exception as e:
-        print(f"Error escribiendo log para Wazuh: {e}")
+        print(f"❌ [ERROR] Fallo escribiendo log: {e}")
 
     # 5. Simulación de Respuesta (Engaño)
     response = make_response("<h1>403 Forbidden</h1><p>You don't have permission to access this resource.</p>", 403)
