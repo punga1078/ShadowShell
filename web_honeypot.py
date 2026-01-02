@@ -44,7 +44,7 @@ def catch_all(path):
         log_line = f"{timestamp} - [WEB TRAP] IP: {ip} | Method: {method} | Path: {full_path} | UA: {user_agent}\n"
         
         # Escribimos en el archivo que vigila el agente
-        with open("/root/ShadowShell/data/access.log", "a") as f:
+        with open("data/access.log", "a") as f:
             f.write(log_line)
     except Exception as e:
         print(f"Error escribiendo log para Wazuh: {e}")
