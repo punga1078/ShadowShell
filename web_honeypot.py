@@ -49,9 +49,9 @@ def catch_all(path):
         print(f"📝 [DEBUG] Intentando escribir en: {log_path}") 
 
         with open(log_path, "a") as f:
-        f.write(log_line)
-        f.flush()            # Fuerza el vaciado del buffer de Python
-        os.fsync(f.fileno()) # Fuerza al sistema operativo a guardar en disco
+            f.write(log_line)
+            f.flush()            # Fuerza el vaciado del buffer de Python
+            os.fsync(f.fileno()) # Fuerza al sistema operativo a guardar en disco
 
     except Exception as e:
         print(f"❌ [ERROR] Fallo escribiendo log: {e}")
